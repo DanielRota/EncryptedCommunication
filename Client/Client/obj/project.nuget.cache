@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "/8mAknFxc7sAPaDWOpRNHW7bqo+Io/NOytovvZe2DKO8dNi0aA9xKjCAdvSxM5fVQGtrLcpVh3dzxHO266DiPQ==",
+  "success": true,
+  "projectFilePath": "D:\\RsaCommunication\\Client\\Client\\Client.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\danie\\.nuget\\packages\\bouncycastle.cryptography\\2.2.1\\bouncycastle.cryptography.2.2.1.nupkg.sha512",
+    "C:\\Users\\danie\\.nuget\\packages\\newtonsoft.json\\13.0.3\\newtonsoft.json.13.0.3.nupkg.sha512"
+  ],
+  "logs": []
+}
