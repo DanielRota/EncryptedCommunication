@@ -1,5 +1,7 @@
 ﻿using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace ServerAsymmetricCommunication
 {
@@ -24,23 +26,34 @@ namespace ServerAsymmetricCommunication
                 server.Running = false;
             }
 
-            Console.WriteLine("########################################");
-            Console.WriteLine("### Encrypted Communication - Server ###");
-            Console.WriteLine("########################################\n");
+            Console.WriteLine("############################################################################");
+            Console.WriteLine("###################                                    #####################");
+            Console.WriteLine("###############      ServerSide RSA/AES Communication      #################");
+            Console.WriteLine("################             Communication log            ##################");
+            Console.WriteLine("#####################                                #######################");
+            Console.WriteLine("############################################################################\n");
+            Console.WriteLine("Waiting for connections...");
 
-            try
+            server.Socket.Listen();
+
+            while (server.Running)
             {
-                server.AcceptRequests();
-            }
-            catch (SocketException se)
-            {
-                Console.WriteLine("\nUnexpected exception : {0}", se.ToString());
-                server.Running = false;
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine("\nUnexpected exception : {0}", e.ToString());
-                server.Running = false;
+                try
+                {
+                    server.Run();
+                }
+                catch (SocketException se) when (se.SocketErrorCode == SocketError.TimedOut)
+                {
+                    Console.WriteLine("\nUnexpected exception : {0}", se.ToString());
+                }
+                catch (CryptographicException ce)
+                {
+                    Console.WriteLine("\nCryptographicException: {0}", ce.ToString());
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine("\nUnexpected exception : {0}", e.ToString());
+                }
             }
 
             Console.WriteLine("Server stopped. Press any key to exit...");

@@ -1,6 +1,5 @@
 ﻿using System.Net.Sockets;
 using System.Text;
-using System.Text.Json;
 using Org.BouncyCastle.Asn1.Pkcs;
 using Org.BouncyCastle.Asn1.X509;
 using Org.BouncyCastle.Crypto;
@@ -15,31 +14,27 @@ namespace ServerAsymmetricCommunication
     public class Server
     {
         public Socket Socket { get; set; }
-        public List<Tuple<string, byte[], Socket>> ClientSockets { get; set; }
-        public List<Socket> Sockets { get; set; }
+        public List<UserKey> UserKeys { get; set; }
+        public List<UserSocket> UserSockets { get; set; }
         public string Address { get; set; } = string.Empty;
-        public int Port { get; set; }
+        public int Port { get; set; } = 3000;
         public bool Running { get; set; } = false;
 
         public Server(string address, int port)
         {
             this.Socket = new Socket(AddressFamily.InterNetworkV6, SocketType.Stream, ProtocolType.Tcp);
-            this.ClientSockets = new List<Tuple<string, byte[], Socket>>();
-            this.Sockets = new List<Socket>();
+            this.UserKeys = new List<UserKey>();
+            this.UserSockets = new List<UserSocket>();
             this.Address = address;
             this.Port = port;
         }
 
-        public void AcceptRequests()
+        public void Run()
         {
-            while (this.Running)
-            {
-                var client = this.Socket.AcceptAsync().Result;
-                Console.WriteLine("Connected to EndPoint: {0}", client.RemoteEndPoint);
-                this.Sockets.Add(client);
-                var thread = new Thread(() => this.Communicate(client));
-                thread.Start();
-            }
+            Socket? client = this.Socket.Accept();
+            Console.WriteLine("EndPoint connected: {0}", client.RemoteEndPoint);
+            Thread? clientThread = new Thread(() => this.Communicate(client));
+            clientThread.Start();
         }
 
         public void Communicate(Socket client)
@@ -49,93 +44,107 @@ namespace ServerAsymmetricCommunication
                 if (!IsConnected(client)) break;
 
                 byte[]? buffer = new byte[2048];
-                int bytes = client.Receive((Span<byte>)buffer, SocketFlags.None);
-                int nullIndex = Array.FindIndex(buffer, b => b == 0x00);
+                int bytes = client.Receive(buffer, SocketFlags.None);
 
-                if (nullIndex > -1)
+                if (bytes == 0)
                 {
-                    byte[] newBuffer = new byte[nullIndex];
-                    Array.Copy(buffer, newBuffer, nullIndex);
-                    buffer = newBuffer;
-                }
-
-                string? receivedJson = Encoding.ASCII.GetString(buffer);
-                SocketMessageFormat? format = JsonSerializer.Deserialize<SocketMessageFormat>(receivedJson);
-
-                if (format == null)
-                {
-                    Console.WriteLine($"SocketMessageFormatException");
+                    Console.WriteLine("EndPoint connection closed: {0}", client.RemoteEndPoint);
+                    var userSocket = this.UserSockets.FirstOrDefault(us => us.Socket.RemoteEndPoint == client.RemoteEndPoint);
+                    var userKey = this.UserKeys.FirstOrDefault(uk => uk.User == userSocket.User);
+                    this.UserSockets.Remove(userSocket);
+                    this.UserKeys.Remove(userKey);
+                    client.Shutdown(SocketShutdown.Both);
+                    client.Close();
                     break;
                 }
 
                 if (bytes > 0)
                 {
+                    int nullIndex = Array.FindIndex(buffer, b => b == 0x00);
+
+                    if (nullIndex > -1)
+                    {
+                        byte[] newBuffer = new byte[nullIndex];
+                        Array.Copy(buffer, newBuffer, nullIndex);
+                        buffer = newBuffer;
+                    }
+
+                    string? receiverJson = Encoding.ASCII.GetString(buffer);
+                    MessageFormat? format = System.Text.Json.JsonSerializer.Deserialize<MessageFormat>(receiverJson);
+
+                    if (format == null)
+                    {
+                        Console.WriteLine("SocketMessageFormatException");
+                        break;
+                    }
+
                     switch (format.Flag)
                     {
-                        case SocketMessageFormat.SocketMessageFlag.Username:
+                        case MessageFormat.PackageType.Username:
                             {
-                                this.ClientSockets.Add(Tuple.Create(format.Sender, format.RsaPublicKey, client));
+                                this.UserKeys.Add(new UserKey { User = format.Sender, Key = format.RsaPublicKey });
+                                this.UserSockets.Add(new UserSocket { User = format.Sender, Socket = client });
                                 Console.WriteLine("{0} joined", format.Sender);
 
-                                //if (this.ClientSockets.Any())
-                                //{
-                                //    foreach (var clientSocket in this.ClientSockets)
-                                //    {
-                                //        var updateCollection = new SocketMessageFormat
-                                //        {
-                                //            Flag = SocketMessageFormat.SocketMessageFlag.UpdateUsersCollection,
-                                //            ForeignUser = clientSocket.Item1,
-                                //            RsaPublicKey = clientSocket.Item2
-                                //        };
-
-                                //        string? jsonUpdate = JsonSerializer.Serialize(updateCollection);
-                                //        client.Send(Encoding.ASCII.GetBytes(jsonUpdate));
-                                //    }
-                                //}
-
-                                var join = new SocketMessageFormat
+                                if (this.UserKeys.Count() > 1)
                                 {
-                                    Flag = SocketMessageFormat.SocketMessageFlag.Username,
-                                    Sender = format.Sender,
-                                    RsaPublicKey = format.RsaPublicKey
-                                };
+                                    // Notifica a tutti dell'arrivo del nuovo Client mandando Nome e Chiave Pubblica
 
-                                if (join == null)
+                                    var socketsExceptNew = this.UserSockets.Where(uk => uk.User != format.Sender).ToList();
+
+                                    MessageFormat? join = new MessageFormat
+                                    {
+                                        Flag = MessageFormat.PackageType.Join,
+                                        Sender = format.Sender,
+                                        RsaPublicKey = format.RsaPublicKey
+                                    };
+
+                                    string? jsonJoin = System.Text.Json.JsonSerializer.Serialize(join);
+                                    byte[]? bufferJoin = Encoding.ASCII.GetBytes(jsonJoin);
+                                    socketsExceptNew.ForEach(uk => uk.Socket.Send(bufferJoin));
+
+                                    // Notifica il nuovo Client dell'esistenza di altri utenti inviando la lista di Nomi e Chiavi Pubbliche
+
+                                    MessageFormat? update = new MessageFormat
+                                    {
+                                        Flag = MessageFormat.PackageType.Update,
+                                        UserKeys = this.UserKeys.Where(uk => uk.User != format.Sender).ToList()
+                                    };
+
+                                    string? jsonUpdate = System.Text.Json.JsonSerializer.Serialize(update);
+                                    byte[]? bufferUpdate = Encoding.UTF8.GetBytes(jsonUpdate);
+                                    client.Send(bufferUpdate);
+                                }
+
+                                break;
+                            }
+                        case MessageFormat.PackageType.Message:
+                            {
+                                var receiver = UserSockets.FirstOrDefault(us => us.User == format.Receiver.ToString());
+
+                                if (receiver == null)
                                 {
-                                    Console.WriteLine($"SocketMessageFormatException");
+                                    Console.WriteLine("Receiver not found");
                                     break;
                                 }
 
-                                string? json = JsonSerializer.Serialize(format);
-                                this.ClientSockets.Where(cs => cs.Item1 != format.Sender).ToList().ForEach(cs => cs.Item3.Send(Encoding.ASCII.GetBytes(json)));
-                                break;
-                            }
-
-                        case SocketMessageFormat.SocketMessageFlag.Message:
-                            {
-                                var receiver = ClientSockets.FirstOrDefault(cs => cs.Item1 == format.Receiver.ToString());
-                                receiver.Item3.Send(buffer);
+                                receiver.Socket.Send(buffer);
                                 break;
                             }
                     }
-                }
 
-                client.Shutdown(SocketShutdown.Both);
-                client.Close();
-                Console.WriteLine("Connection closed.");
+                    format.Dispose();
+                }
             }
+
+            client.Shutdown(SocketShutdown.Both);
+            client.Close();
+            Console.WriteLine("EndPoint connection closed: {0}", client.RemoteEndPoint);
         }
 
         public static bool IsConnected(Socket socket)
         {
-            try
-            {
-                return !(socket.Poll(1, SelectMode.SelectRead) && socket.Available == 0);
-            }
-            catch (SocketException)
-            {
-                return false;
-            }
+            return !(socket.Poll(1, SelectMode.SelectRead) && socket.Available == 0);
         }
 
         public byte[] GetPublicKeyBytes(AsymmetricKeyParameter publicKey)

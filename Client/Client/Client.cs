@@ -3,12 +3,10 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using Client;
-using Org.BouncyCastle.Asn1.Pkcs;
 using Org.BouncyCastle.Asn1.X509;
 using Org.BouncyCastle.Crypto;
 using Org.BouncyCastle.Crypto.Generators;
 using Org.BouncyCastle.Crypto.Parameters;
-using Org.BouncyCastle.Pkcs;
 using Org.BouncyCastle.Security;
 using Org.BouncyCastle.X509;
 
@@ -44,9 +42,9 @@ namespace ClientAsymmetricCommunication
             IPEndPoint? endPoint = new IPEndPoint(address, port);
             this.Socket.Connect(endPoint);
 
-            var format = new SocketMessageFormat
+            MessageFormat? format = new MessageFormat
             {
-                Flag = SocketMessageFormat.SocketMessageFlag.Username,
+                Flag = MessageFormat.PackageType.Username,
                 Sender = this.Name,
                 RsaPublicKey = this.GetPublicKeyBytes(this.PublicKey)
             };
@@ -54,6 +52,7 @@ namespace ClientAsymmetricCommunication
             string? json = System.Text.Json.JsonSerializer.Serialize(format);
             byte[]? buffer = Encoding.ASCII.GetBytes(json);
             this.Socket.Send(buffer);
+            format.Dispose();
         }
 
         public void WriteBuffer()
@@ -61,8 +60,7 @@ namespace ClientAsymmetricCommunication
             while (this.Running)
             {
                 string? receiver = "";
-                string? message = "";
-
+                string? text = "";
                 byte[]? aesIv = new byte[16];
                 byte[]? aesKey = new byte[16];
                 byte[]? aesEncryptedKey = new byte[32];
@@ -73,7 +71,15 @@ namespace ClientAsymmetricCommunication
                     Console.Write("Receiver: ");
                     receiver = Console.ReadLine();
                     if (!string.IsNullOrEmpty(receiver) && this.Keys.ContainsKey(receiver)) break;
-                    Console.WriteLine("User not found");
+
+                    if (receiver == this.Name)
+                    {
+                        Console.WriteLine("That's you!");
+                    }
+                    else
+                    {
+                        Console.WriteLine("\"{0}\" not found", receiver);
+                    }
                 }
 
                 if (receiver == null)
@@ -85,12 +91,12 @@ namespace ClientAsymmetricCommunication
                 while (this.Running)
                 {
                     Console.Write("Message: ");
-                    message = Console.ReadLine();
-                    if (!string.IsNullOrEmpty(message)) break;
-                    Console.WriteLine("Message can't be null");
+                    text = Console.ReadLine();
+                    if (!string.IsNullOrEmpty(text)) break;
+                    Console.WriteLine("Message is null");
                 }
 
-                if (message == null)
+                if (text == null)
                 {
                     Console.WriteLine("Message is null");
                     break;
@@ -120,12 +126,12 @@ namespace ClientAsymmetricCommunication
                     Array.Copy(aes.Key, aesKey, aesKey.Length);
 
                     aesEncryptedKey = rsa.DoFinal(aes.Key);
-                    encryptedMessage = aes.EncryptCbc(Encoding.ASCII.GetBytes(message), aes.IV, PaddingMode.Zeros);
+                    encryptedMessage = aes.EncryptCbc(Encoding.ASCII.GetBytes(text), aes.IV, PaddingMode.Zeros);
                 }
 
-                var format = new SocketMessageFormat
+                MessageFormat? message = new MessageFormat
                 {
-                    Flag = SocketMessageFormat.SocketMessageFlag.Message,
+                    Flag = MessageFormat.PackageType.Message,
                     Receiver = receiver,
                     Sender = this.Name,
                     EncryptyedAesKey = aesEncryptedKey,
@@ -133,11 +139,11 @@ namespace ClientAsymmetricCommunication
                     AesInitializationVector = aesIv
                 };
 
-                string? json = System.Text.Json.JsonSerializer.Serialize(format);
+                string? json = System.Text.Json.JsonSerializer.Serialize(message);
                 byte[]? buffer = Encoding.ASCII.GetBytes(json);
                 this.Socket.SendAsync((ArraySegment<byte>)buffer, SocketFlags.None);
-                Console.WriteLine($"##### {this.Name} (You): {message}");
-                format.Dispose();
+                Console.WriteLine("##### {0} (You): {1}", this.Name, text);
+                message.Dispose();
             }
         }
 
@@ -160,22 +166,10 @@ namespace ClientAsymmetricCommunication
             return publicKeyInfo.GetEncoded();
         }
 
-        public byte[] GetPrivateKeyBytes(AsymmetricKeyParameter privateKey)
-        {
-            PrivateKeyInfo privateKeyInfo = PrivateKeyInfoFactory.CreatePrivateKeyInfo(privateKey);
-            return privateKeyInfo.GetEncoded();
-        }
-
         public RsaKeyParameters GetRsaKeyParameters(byte[] publicKeyBytes)
         {
             SubjectPublicKeyInfo publicKeyInfo = SubjectPublicKeyInfo.GetInstance(publicKeyBytes);
             return (RsaKeyParameters)PublicKeyFactory.CreateKey(publicKeyInfo);
-        }
-
-        public RsaPrivateCrtKeyParameters GetRsaPrivateCrtKeyParameters(byte[] privateKeyBytes)
-        {
-            PrivateKeyInfo privateKeyInfo = PrivateKeyInfo.GetInstance(privateKeyBytes);
-            return (RsaPrivateCrtKeyParameters)PrivateKeyFactory.CreateKey(privateKeyInfo);
         }
     }
 }

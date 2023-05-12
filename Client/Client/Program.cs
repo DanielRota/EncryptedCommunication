@@ -1,8 +1,6 @@
 ﻿using System.Net.Sockets;
-using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 using Client;
 
 namespace ClientAsymmetricCommunication
@@ -11,11 +9,13 @@ namespace ClientAsymmetricCommunication
     {
         private static void Main(string[] args)
         {
-            Console.WriteLine("########################################");
-            Console.WriteLine("### Encrypted Communication - Client ###");
-            Console.WriteLine("########################################\n");
+            Console.WriteLine("############################################################################");
+            Console.WriteLine("###################                                    #####################");
+            Console.WriteLine("###############      ClientSide RSA/AES Communication      #################");
+            Console.WriteLine("###################                                    #####################");
+            Console.WriteLine("############################################################################\n");
 
-            var client = new Client();
+            Client? client = new Client();
 
             while (true)
             {
@@ -28,7 +28,7 @@ namespace ClientAsymmetricCommunication
                     break;
                 }
 
-                Console.WriteLine("Name can't be null");
+                Console.WriteLine("Name is null");
             }
 
             try
@@ -50,13 +50,12 @@ namespace ClientAsymmetricCommunication
                         buffer = newBuffer;
                     }
 
-                    var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                    using var stream = new MemoryStream(buffer);
-                    var format = JsonSerializer.Deserialize<SocketMessageFormat>(stream, options);
+                    string? json = Encoding.UTF8.GetString(buffer);
+                    MessageFormat? format = System.Text.Json.JsonSerializer.Deserialize<MessageFormat>(json);
 
                     if (format == null)
                     {
-                        Console.WriteLine($"Message is null");
+                        Console.WriteLine("Message is null");
                         break;
                     }
 
@@ -64,12 +63,12 @@ namespace ClientAsymmetricCommunication
                     {
                         switch (format.Flag)
                         {
-                            case SocketMessageFormat.SocketMessageFlag.Username:
+                            case MessageFormat.PackageType.Username:
                                 {
                                     client.Keys.TryAdd(format.Sender, format.RsaPublicKey);
                                     break;
                                 }
-                            case SocketMessageFormat.SocketMessageFlag.Message:
+                            case MessageFormat.PackageType.Message:
                                 {
                                     byte[]? decryptedMessage = new byte[64];
                                     byte[]? aesDecryptedKey = client.Decryptor.DoFinal(format.EncryptyedAesKey);
@@ -88,13 +87,20 @@ namespace ClientAsymmetricCommunication
                                     Console.WriteLine("\n##### {0}: {1}", format.Sender, Encoding.ASCII.GetString(decryptedMessage, 0, decryptedMessage.Length));
                                     break;
                                 }
-                            //case SocketMessageFormat.SocketMessageFlag.UpdateUsersCollection:
-                            //    {
-                            //        client.Keys.Add(format.ForeignUser, format.RsaPublicKey);
-                            //        break;
-                            //    }
+                            case MessageFormat.PackageType.Update:
+                                {
+                                    format.UserKeys.ForEach(c => client.Keys.Add(c.User, c.Key));
+                                    break;
+                                }
+                            case MessageFormat.PackageType.Join:
+                                {
+                                    client.Keys.Add(format.Sender, format.RsaPublicKey);
+                                    break;
+                                }
                         }
                     }
+
+                    format.Dispose();
                 }
             }
             catch (SocketException se)
