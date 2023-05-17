@@ -97,20 +97,25 @@ namespace ClientAsymmetricCommunication
                                     client.Keys.Add(format.Sender, format.RsaPublicKey);
                                     break;
                                 }
+                            case MessageFormat.PackageType.Remove:
+                                {
+                                    client.Keys.Remove(format.Sender);
+                                    break;
+                                }
                         }
                     }
 
                     format.Dispose();
                 }
             }
-            catch (SocketException se)
-            {
-                Console.WriteLine("\nSocketException: {0}", se.ToString());
-                client.Running = false;
-            }
             catch (CryptographicException ce)
             {
                 Console.WriteLine("\nCryptographicException: {0}", ce.ToString());
+                client.Running = false;
+            }
+            catch (SocketException se)
+            {
+                Console.WriteLine("\nSocketException: {0}", se.ToString());
                 client.Running = false;
             }
             catch (Exception e)
@@ -119,7 +124,8 @@ namespace ClientAsymmetricCommunication
                 client.Running = false;
             }
 
-            while (true) { }
+            Console.WriteLine("Client stopped. Press any key to exit...");
+            Console.Read();
         }
     }
 }

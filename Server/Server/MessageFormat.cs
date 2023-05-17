@@ -11,7 +11,8 @@ namespace Server
             Username = 0,
             Message = 1,
             Update = 2,
-            Join = 3
+            Join = 3,
+            Remove = 4
         }
 
         private bool Disposed;
